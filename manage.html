@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>人员管理</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.0/dist/css/bootstrap.min.css"
+          integrity="sha384-9aIt2nRpC12Uk9gS9baDl411NQApFmC26EwAOH8WgZl5MYYxFfc+NcPb1dKGj7Sk" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+    <script src="https://cdn.staticfile.org/axios/0.18.0/axios.min.js"></script>
+    <script src="https://cdn.bootcss.com/jquery/3.4.1/jquery.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            margin: 100px 20px 0px 20px;
+        }
+
+        #app {
+            margin: 0 auto;
+        }
+
+        #app h1 {
+            margin-bottom: 50px;
+        }
+
+        .w80 {
+            width: 80px;
+        }
+
+        .w160 {
+            width: 160px;
+        }
+
+        .w100 {
+            width: 150px;
+        }
+
+        .col {
+            color: #ffffff;
+            background: none;
+            border: none
+        }
+
+        #table {
+            min-height: 450px;
+            max-height: 590px;
+            overflow-y: scroll;
+        }
+    </style>
+</head>
+
+<body>
+<div id="app">
+    <h1 style="text-align: center;">
+        人员管理
+    </h1>
+    <a href="./info.html">返回信息</a>
+    <div>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="people" id="inlineRadio1" value="option1" checked
+                   @change="getUser(0)">
+            <label class="form-check-label" for="inlineRadio1">全部</label>
+        </div>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="people" id="inlineRadio2" value="option2"
+                   @change="getUser(1)">
+            <label class="form-check-label" for="inlineRadio2">仅管理员</label>
+        </div>
+
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="people" id="inlineRadio3" value="option2"
+                   @change="getUser(2)">
+            <label class="form-check-label" for="inlineRadio3">未审批</label>
+        </div>
+    </div>
+    <table id="table" class="table table-dark">
+        <thead>
+        <tr>
+            <th scope="col">职工号</th>
+            <th scope="col">姓名</th>
+            <th scope="col">性别</th>
+            <th scope="col">院系</th>
+            <th scope="col">是否婚配</th>
+            <th scope="col">微信</th>
+            <th scope="col">手机号</th>
+            <th scope="col">操作</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr v-for="(user,index) in users">
+            <th scope="row">{{user.account}}</th>
+            <td>{{user.name!=undefined ? user.name:'未定义'}}</td>
+            <td>{{user.sex!=undefined ? (user.sex?'男':'女'):'未定义'}}</td>
+            <td>{{user.department.id!=undefined ? departments[user.department.id-1].name:'未定义'}}</td>
+            <td>{{user.marry!=undefined ? (user.marry?'是':'否'):'未定义'}}</td>
+            <td>{{user.wechat!=undefined ? user.wechat:'未定义'}}</td>
+            <td>{{user.phone!=undefined ? user.phone:'未定义'}}</td>
+            <td>
+                <button class="btn btn-danger" v-if="status==0 && user.type==1" @click="deleteUser(user.id)">删除</button>
+                <button class="btn btn-success" v-if="user.type==0" @click="passUser(user.id)">通过</button>
+                <button class="btn btn-primary" v-if="curuser.type==3 && status==0 && user.type==1" @click="addAdmin(user.id)">设置管理员</button>
+                <button class="btn btn-primary" v-if="curuser.type==3 && user.type==2" @click="deleteAdmin(user.id)">取消管理员
+                </button>
+            </td>
+        </tr>
+        </tbody>
+    </table>
+    <div>
+        <br>
+        职工号：
+        <input class="form-control" name="s_account" v-model="search.account">
+        职工姓名：
+        <input class="form-control" name="s_name" v-model="search.name">
+        职工院系：
+        <select class="form-control" name="department" v-model="search.department">
+            <option :value="depart.id" v-for="(depart, index) in departments">{{depart.name}}</option>
+        </select>
+        <button class="btn btn-primary" @click="searched">查询</button>
+    </div>
+</div>
+<script>
+	var BASEURL = "http://localhost:8070";
+    function parseParam(param, key) {
+        var paramStr = "";
+        if (param instanceof String || param instanceof Number || param instanceof Boolean) {
+            paramStr += "&" + key + "=" + encodeURIComponent(param);
+        } else {
+            $.each(param, function (i) {
+                var k = key == null ? i : key + (param instanceof Array ? "[" + i + "]" : "." + i);
+                paramStr += '&' + parseParam(this, k);
+            });
+        }
+        return paramStr.substr(1);
+    }
+
+    var app = new Vue({
+        el: '#app',
+        data: {
+            status: 0,
+            curuser: {  //登录当前页面用户信息
+                account: 123123,
+                name: 'xxxx',
+                type: 3
+            },
+            search: { //查询信息
+                page: 1,
+				pageSize: 100,
+                account: null,
+                name: null,
+                department: 1
+            },
+            departments: [], //所有院系信息
+            users: [],   //用于展示的用户信息列表
+            admins: []  //管理员信息列表
+        },
+        methods: {
+            getUser: function (i) {
+                if (i == 0) {
+                    // 获取所有的人员
+                    this.allpass()
+                    this.status = 0
+                } else if (i == 1) {
+                    // 只获取管理员
+                    this.alladmin();
+                    this.status = 1
+                } else if (i == 2) {
+                    // 获取未审批
+                    this.allnotpass();
+                    this.status = 2
+                }
+            },
+            allpass: function () {
+                let _this = this
+                axios({ //获取所有审核通过的用户
+                    method: 'get',
+                    url: BASEURL+'/api/user/get',
+					params: {page:1,pageSize:100}
+                }).then(function (re) {
+                   _this.users = re.data.data.info.filter(function(item){
+						if(item.type <= 2 ) return item;
+                   })	
+                }).catch(function (er) {
+                    _this.users = []
+                    window.alert("用户为空")
+                })
+            },
+            allnotpass: function () {
+                let _this = this
+                axios({  //获取审核尚未通过的用户
+                    method: 'get',
+                    url: BASEURL+'/api/user/get',
+					params:{type:0}
+                }).then(function (re) {
+                    _this.users = re.data.data.info;
+                }).catch(function (er) {
+                    _this.users = []
+                    window.alert("用户为空")
+                })
+            },
+            alladmin: function () {
+                let _this = this
+                axios({ //获取所有管理员
+                    method: 'get',
+                    url: BASEURL+'/api/user/get',
+					params:{type:2}
+                }).then(function (re) {
+                    _this.users = re.data.data.info;
+                }).catch(function (er) {
+                    _this.users = []
+                    window.alert("用户为空");
+                })
+            },
+            deleteUser: function (idn) {
+                data = {
+                    id : idn
+                }
+                curdata = parseParam(data);
+                axios({   //删除用户
+                    method: 'post',
+                    url: BASEURL+'/api/user/delete',
+                    data: curdata,
+                }).then(function (re) {
+                    window.alert("操作成功")
+                    window.location.href = "./manage.html";
+                }).catch(function (er) {
+                    window.alert("操作失败")
+                });
+            },
+            passUser: function (idn) {
+                data = {
+                    id: idn
+                }
+                curdata = parseParam(data)
+                axios({  //通过该用户审核或者从垃圾站恢复用户身份
+                    method: 'post',
+                    url: BASEURL+'/api/user/activate',
+                    data: curdata,
+                }).then(function (re) {
+                    window.alert("操作成功")
+                    window.location.href = "./manage.html";
+                }).catch(function (er) {
+                    window.alert("操作失败")
+                });
+
+            },
+            addAdmin: function (idn) { //添加管理员身份//此处请求路径已修改
+                data = {
+                    id: idn
+                }
+                curdata = parseParam(data)
+                axios({ //添加管理员身份
+                    method: 'post',
+                    url: BASEURL+'/api/user/setAdmin',
+                    data: curdata,
+                }).then(function (re) {
+                    window.alert("操作成功")
+                    window.location.href = "./manage.html";
+                }).catch(function (er) {
+                    window.alert("操作失败")
+                });
+            },
+            deleteAdmin: function (idn) {  //取消管理员身份//此处请求路径已修改
+                data = {
+                    id: idn
+                }
+                curdata = parseParam(data)
+                axios({  //移除管理员身份
+                    method: 'post',
+                    url: BASEURL+'/api/user/unSetAdmin',
+                    data: curdata,
+                }).then(function (re) {
+                    window.alert("操作成功")
+                    window.location.href = "./manage.html";
+                }).catch(function (er) {
+                    window.alert("操作失败")
+                });
+            },
+            searched: function () { 
+                let _this = this
+                let search ={
+                    page: _this.search.page,
+					pageSize: _this.search.pageSize,
+                    accout: _this.search.account,
+                    name: _this.search.name,
+                    depId: _this.search.department
+                }
+                axios({  //根据模糊或精确选项查找人员信息更新users列表
+                    method: 'get',
+                    url: BASEURL+'/api/user/get',
+                    params: search
+                }).then(function (re) {
+                    _this.users = re.data.data.info.filter(function(item){
+                    	if(item.type <= 2 ) return item;
+                    })
+                }).catch(function (er) {
+                    _this.users = []
+                    window.alert("用户为空")
+                })
+
+            }
+        },
+        created() {
+            let _this = this
+			var curuser = JSON.parse(window.localStorage.getItem("userInfo"));
+			console.log(curuser );
+            if(curuser == null || curuser == undefined || curuser=="") {
+                window.alert("请重新登录")
+                window.location.href = "/";
+				return;
+            }else{
+				_this.curuser = curuser;
+			}
+
+            axios({  //获取所有通过审核的用户更新users列表
+                method: 'get',
+                url: BASEURL+'/api/user/get',
+				params: {page:1,pageSize:100}
+            }).then(function (re) {
+				_this.users = re.data.data.info.filter(function(item){
+					if(item.type <= 2 ) return item;
+				})		
+            }).catch(function (er) {
+                _this.users = []
+                window.alert("用户为空");
+            })
+            axios({  //获取所有的院系更新departments列表
+                method: 'get',
+                url: BASEURL+'/api/department/getAll',
+            }).then(function (re) {
+                _this.departments = re.data.data;
+				_this.departments.push({id:0,name:"全部"});
+            })
+        }
+    })
+</script>
+
+</body>
+
+</html>
